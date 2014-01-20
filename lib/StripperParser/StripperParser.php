@@ -20,7 +20,7 @@
  *         stripper-value-invalid
  *         stripper-bracket
  * 
- * @version 0.9.2
+ * @version 0.9.3
  * @package StripperParser
  */
 
@@ -371,7 +371,7 @@ class StripperParser
         // evaluate property/value combo
         $validate = $this->_config->validatePropertyValue($property, $value);
 
-        if (is_null($validate) || !is_array($validate) || !isset($validate['validates'])) {
+        if (is_null($validate) || !is_array($validate) || !array_key_exists('validates', $validate)) {
             throw new Exception("Config->validatePropertyValue returns incorrect validation array.");
         }
 
@@ -428,7 +428,15 @@ class StripperParser
 
         // syntax highlight
         $this->_highlightPropertyLine($indent, $property, 'stripper-property-known', $separator, $value,
-            ($validate['validates']) ? 'stripper-value-valid' : 'stripper-value-invalid',
+            ($validate['validates'])
+                ?   (   (array_key_exists('type', $validate) && !empty($validate['type']))
+                            ?   'stripper-value-valid stripper-value-type-' . $validate['type']
+                            :   'stripper-value-valid'
+                    )
+                :   (   (($validate['validates']) === false)
+                        ?   'stripper-value-invalid'
+                        :   'stripper-value-untested'
+                    ),
             $extraPost
         );
 

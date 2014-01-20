@@ -810,7 +810,11 @@ class StripperConfig implements StripperConfigInterface
     /**
      * @param  string $property
      * @param  string $value
-     * @return array    associative: 'errors' => [], 'warnings' => [], 'validates' => (bool)
+     * @return array    associative:
+     *                     'errors' => [],
+     *                     'warnings' => [],
+     *                     'validates' => (bool/null)
+     *                     'type' => string (if validated as anything)
      */
     public function validatePropertyValue($property, $value)
     {
@@ -823,9 +827,10 @@ class StripperConfig implements StripperConfigInterface
 
         // return array
         $validate = array(
-            'validates' =>  'false',
+            'validates' =>  null,
             'errors' =>     array(),
             'warnings' =>   array(),
+            'type' =>       null,
         );
 
         $property = strtolower($property);
@@ -854,7 +859,9 @@ class StripperConfig implements StripperConfigInterface
         if (!isset($this->_config['property'][$property])) {
             return $validate;
         }
-        
+
+        // assume correct, switch below catches problems
+        $validate['validates'] = true;
 
         // does its value validate?
         switch ($this->_config['property'][$property]) {
@@ -864,6 +871,7 @@ class StripperConfig implements StripperConfigInterface
                 if (!preg_match('/^[0-9-]+$/', $trimvalue)) {
                     $validate['errors'][] = sprintf("Incorrect value for integer/boolean property ('%s'): '%s'.",
                         $property, $value);
+                    $validate['validates'] = false;
                 }
                 break;
 
@@ -871,6 +879,7 @@ class StripperConfig implements StripperConfigInterface
                 if (!preg_match('/^-?[0-9]*\.*[0-9]*+$/', $trimvalue)) {
                     $validate['errors'][] = sprintf("Incorrect value for float property ('%s'): '%s'.",
                         $property, $value);
+                    $validate['validates'] = false;
                 }
                 break;
 
@@ -878,6 +887,7 @@ class StripperConfig implements StripperConfigInterface
                 if (!preg_match('/^[a-z_0-9]+$/i', $trimvalue)) {
                     $validate['warnings'][] = sprintf("Illegal characters used for alphanumeric property ('%s'): '%s'."
                         .   " (use only a-z or _)", $property, $value);
+                    $validate['validates'] = false;
                 }
                 break;
 
@@ -885,13 +895,17 @@ class StripperConfig implements StripperConfigInterface
                 if (strrpos($trimvalue, '\\') !== false) {
                     $validate['warnings'][] = sprintf("Found backslash (\\) in path property ('%s'): '%s'."
                         .   " It is recommended to use forward slashes (/) to avoid problems.", $property, $value);
+                    $validate['validates'] = false;
                 }
                 else if (!preg_match('/^[a-z0-9_\/\.\*\' -]+$/i', $trimvalue)) {
                     $validate['warnings'][] = sprintf("Illegal characters used in path property ('%s'): '%s'."
                         .   " (use only a-z, _, 0-9, -, /, *, ', . and space)", $property, $value);
+                    $validate['validates'] = false;
                 }
                 else if (strpos($trimvalue, '*') === false && !preg_match('/\.[a-z0-9_]+$/i', $trimvalue)) {
-                    $validate['warnings'][] = sprintf("Path property ('%s') without filetype: '%s'.",
+                    $validate['warnings'][] = sprintf(
+                            "Path property ('%s') without filetype: '%s'."
+                            .   " This may be fine for materials.",
                             $property, $value);
                 }
                 break;
@@ -900,13 +914,22 @@ class StripperConfig implements StripperConfigInterface
                 if (!preg_match('/^((-?[0-9\.]|e-)+\s+){2}(-?[0-9\.]|e-)+$/', $trimvalue)) {
                     $validate['errors'][] = sprintf("Incorrect value for vector property ('%s'): '%s'."
                         .   " (format is <float> <float> <float>)", $property, $value);
+                    $validate['validates'] = false;
                 }
                 break;
 
             case 'color':
-                if (!preg_match('/^(-?[0-9]+\s+){2}-?[0-9]+(\s+-?[0-9]+)?$/sm', $trimvalue)) {
+                if (!preg_match('/^([0-9]+)\s+([0-9]+)\s+([0-9]+)(\s+([0-9]+))?$/sm', $trimvalue, $match)) {
                     $validate['errors'][] = sprintf("Incorrect value for RGBA color property ('%s'): '%s'."
-                        .   " (format is <int> <int> <int> <int>)", $property, $value);
+                        .   " (format is <0-255> <0-255> <0-255> <0-255>)", $property, $value);
+                    $validate['validates'] = false;
+                } elseif (  $match[1] < 0 || $match[1] > 255
+                        ||  $match[2] < 0 || $match[2] > 255
+                        ||  $match[3]< 0 || $match[3] > 255
+                ) {
+                    $validate['errors'][] = sprintf("One ore more values out of range for RGBA color property ('%s'):"
+                        .   " '%s'. (allowed range is <0-255>)", $property, $value);
+                    $validate['validates'] = false;
                 }
                 break;
 
@@ -914,6 +937,7 @@ class StripperConfig implements StripperConfigInterface
                 if (!preg_match('/^(-?[0-9]+\s+){3}-?[0-9]+$/sm', $trimvalue)) {
                     $validate['errors'][] = sprintf("Incorrect value for RGBA color property ('%s'): '%s'."
                         .   " (format is <int> <int> <int> <int>)", $property, $value);
+                    $validate['validates'] = false;
                 }
                 break;
             
@@ -923,17 +947,17 @@ class StripperConfig implements StripperConfigInterface
                 ) {
                     $validate['errors'][] = sprintf("Incorrect value for double vector property ('%s'): '%s'."
                         .   " (format is <float> <float> <float>[, <float> <float> <float>])", $property, $value);
+                    $validate['validates'] = false;
                 }
                 break;
-
-            
 
             // default omitted on purpose
         }
 
-        // is it appropriate for the classname?
-        //      cannot be done this way, needs to be checked when all the values for a block are known
-        //      AND     can only be sensibly done for ADD content
+        if ($validate['validates'] !== false) {
+            $validate['type'] = $this->_config['property'][$property];
+        }
+
         return $validate;
     }
 }
