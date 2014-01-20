@@ -1,8 +1,29 @@
 <?php
 /**
- * @version 0.9.1
+ * StripperParser
+ *
+ * A note about syntax highlighting:
+ *     $coloredLines is an array with html-escaped content ready for output.
+ *     Lines that cannot be interpreted are left unchanged (other than escaping).
+ *     Lines with highlighted content may have any of the following classes
+ *     added in <span> tags:
+ *         stripper-comment
+ *         stripper-syntaxerror
+ *         stripper-modifier
+ *         stripper-modifier-unexpected
+ *         stripper-property
+ *         stripper-property-known
+ *         stripper-property-unknown
+ *         stripper-value
+ *         stripper-value-untested
+ *         stripper-value-valid
+ *         stripper-value-invalid
+ *         stripper-bracket
+ * 
+ * @version 0.9.2
  * @package StripperParser
  */
+
 
 // define modes
 define("STRP_MODE_UNKNOWN",     0);
@@ -33,10 +54,13 @@ class StripperParser
     protected $_lastBlock = -1;
     protected $_lastSubBlock = -1;
 
-    public $errors = array();
+    public $errors = array();           // associative (message => string, line => int)
     public $warnings = array();
+    public $coloredLines = array();     // syntax highlighted version (built while parsing)
 
     public $dumpMode = false;           // set to true to allow/ignore { on same line as content
+
+
 
     /**
      * @param StripperConfigInterface $config
@@ -71,6 +95,7 @@ class StripperParser
 
         $this->errors = array();
         $this->warnings = array();
+        $this->coloredLines = array();
         
 
         // dump mode: only entity list
@@ -86,19 +111,23 @@ class StripperParser
             $this->_lineNumber++;
 
             // commented or empty line (ignore)
-            if (preg_match("/^\s*;/is", $line) || preg_match("/^\s*$/is", $line)) {
+            if (preg_match("/^\s*;/is", $line)) {
+                $this->coloredLines[] = sprintf('<span class="stripper-comment">%s</span>', htmlentities($line));
+                continue;
+            } else if (preg_match("/^\s*$/is", $line)) {
+                $this->coloredLines[] = '';
                 continue;
             }
 
             // check for mode changer: modifier lines
-            if (preg_match("/^\s*([a-z]+)(:?)(.*?)\s*$/is", $line, $match)) {
-                $this->_parseLineModifier($line, $match[1], $match[3], (strlen($match[2])));
+            if (preg_match("/^(\s*)([a-z]+)(:?)(.*)?$/is", $line, $match)) {
+                $this->_parseLineModifier($line, $match[2], $match[1], $match[4], (strlen($match[3])));
                 continue;
             }
 
             // check for property value lines
-            if (preg_match('/^\s*"([a-z_0-9\.]+)"\s+"([^"]*?)"\s*?(.*)?$/is', $line, $match)) {
-                $this->_parseLineProperty($line, $match[1], $match[2], $match[3]);
+            if (preg_match('/^(\s*)"([a-z_0-9\.]+)"(\s+)"([^"]*?)"(.*)?$/is', $line, $match)) {
+                $this->_parseLineProperty($line, $match[2], $match[4], $match[1], $match[3], $match[5]);
                 continue;
             }
 
@@ -116,6 +145,9 @@ class StripperParser
                 
                 $this->_parseClosingBracket();
                 $this->_parseOpeningBracket();
+
+                $this->coloredLines[] = sprintf('<span class="stripper-syntaxerror">%s</span>',
+                        htmlentities($line));
                 continue;
             }
             else if (preg_match('/^\s*({|})\s*(.*)?$/is', $line, $match)) {
@@ -124,7 +156,7 @@ class StripperParser
                     $this->_addError(
                         'error',
                         sprintf('Brackets must be placed on a separate line;'
-                            .   ' no other content may appear the same line. (%s)', $match[2]),
+                            .   ' no other content (not even comments) may appear the same line. (%s)', $match[2]),
                         $this->_lineNumber
                     );
                     // open / close bracket anyway, to avoid problems
@@ -133,19 +165,19 @@ class StripperParser
                     } else if ($match[1] == '}') {
                         $this->_parseClosingBracket();
                     }
+
+                    $this->coloredLines[] = sprintf('<span class="stripper-syntaxerror">%s</span>',
+                        htmlentities($line));
                     continue;
                 }
+                $this->coloredLines[] = htmlentities($line);
 
                 if ($match[1] == '{') {
                     // are we expecting a block opening?
-                    if (!$this->_parseOpeningBracket()) {
-                        continue;
-                    }
+                    $this->_parseOpeningBracket();
                 } else {
                     // are we expecting a block closing?
-                    if (!$this->_parseClosingBracket()) {
-                        continue;
-                    }
+                    $this->_parseClosingBracket();
                 }
                 continue;
             }
@@ -157,6 +189,7 @@ class StripperParser
                 sprintf("Syntax error; uninterpretable line content: '%s'.", trim($line)),
                 $this->_lineNumber
             );
+            $this->coloredLines[] = sprintf('<span class="stripper-syntaxerror">%s</span>', htmlentities($line));
         }
 
         return (!count($this->errors));
@@ -171,20 +204,31 @@ class StripperParser
     }
 
 
-
     /**
      * Parses a line with expected format: <mode>:
      * @param  string   $line
      * @param  string   $modifier
+     * @param  string   $indent         the whitespace before the modifier
      * @param  string   $extraPost      the junk part after the first word / :
      * @param  boolean  $colon
      * @return void
      */
-    protected function _parseLineModifier($line, $modifier, $extraPost, $colon = true)
+    protected function _parseLineModifier($line, $modifier, $indent, $extraPost, $colon = true)
     {
+        // missing colon
+        if (!$colon) {
+            $this->_addError(
+                'error',
+                sprintf('Found (assumed) mode modifier (%s) not followed by ":".', strtoupper($modifier)),
+                $this->_lineNumber
+            );
+            // syntax highlight, if any of the acceptable forms
+            $this->_highlightModifierLine($indent, $modifier, null, '', $extraPost);
+            return;
+        }
 
         // unexpected time? in any bracket is wrong
-        if (preg_match("/(add|modify|filter)/is", $modifier)) {
+        if (preg_match("/^(add|modify|filter)$/is", $modifier)) {
             if ($this->_bracketLevel > 0) {
                 $this->_addError(
                     'error',
@@ -193,10 +237,12 @@ class StripperParser
                         strtoupper($modifier), $this->_bracketLevel),
                     $this->_lineNumber
                 );
+                $this->_highlightModifierLine($indent, $modifier, 'stripper-modifier-unexpected',
+                    ($colon) ? ':' : '', $extraPost);
                 return;
             }
-        } else if (preg_match("/(match|insert|delete|replace)/is", $modifier)) {
-            if ($this->_bracketLevel != 1) {
+        } else if (preg_match("/^(match|insert|delete|replace)$/is", $modifier)) {
+            if ($this->_bracketLevel != 1 || $this->_blockMode != STRP_MODE_MODIFY) {
                 $this->_addError(
                     'error',
                     sprintf('Unexpected modify submode modifier (%s). '
@@ -204,38 +250,46 @@ class StripperParser
                         strtoupper($modifier), $this->_bracketLevel),
                     $this->_lineNumber
                 );
+                $this->_highlightModifierLine($indent, $modifier, 'stripper-modifier-unexpected',
+                    ($colon) ? ':' : '', $extraPost);
                 return;
             }
         }
         else {
             $this->_addError(
                 'error',
-                'Uninterpretable line.',
+                sprintf("Uninterpretable line or unknown modifier ('%s').", $modifier),
                 $this->_lineNumber
             );
+            $this->_highlightModifierLine($indent, $modifier, 'stripper-syntaxerror',
+                    ($colon) ? ':' : '', $extraPost);
             return;
         }
 
-        // missing colon
-        if (!$colon) {
-            $this->_addError(
-                'error',
-                sprintf('Found mode modifier (%s) not followed by ":".', strtoupper($modifier)),
-                $this->_lineNumber
-            );
-            return;
-        }
+        // healthy line
+        $this->_highlightModifierLine($indent, $modifier, null, ($colon) ? ':' : '', $extraPost);
 
         // catch problems with the line
-        if (strlen($extraPost)) {
-            $this->_addError(
-                'error',
-                (strpos($extraPost, '{') !== false)
-                    ?   'The block opener bracket ("{") must be on its own line.'
-                    :   'No non-whitespace characters allowed after (sub)mode modifier.',
-                $this->_lineNumber
-            );
-            return;
+        if (strlen(trim($extraPost))) {
+            if (!preg_match('/^\s*;/s', $extraPost)) {
+                // comment? just fine, don't even warn
+                // otherwise, garbage text
+                if (strpos($extraPost, '{') !== false) {
+                    $this->_addError(
+                        'error',
+                        'Unexpected block opener bracket ({) on modifier line. '
+                            .   'This bracket will be ignored and is likely to break your script. ',
+                        $this->_lineNumber
+                    );
+                } else {
+                    $this->_addError(
+                        'warning',
+                        'Unexpected content after the modifier. '
+                            .   'This will not break your script, but should be cleaned up. ',
+                        $this->_lineNumber
+                    );
+                }
+            }
         }
 
         // set stripper mode
@@ -279,25 +333,27 @@ class StripperParser
      * @param  string   $line
      * @param  string   $property
      * @param  string   $value
+     * @param  string   $indent         the whitespace before the property
+     * @param  string   $separator      the whitespace between the prop and value
      * @param  boolean  $extraPost      junk (such as a ;-comment)
      * @return boolean
      */
-    protected function _parseLineProperty($line, $property, $value, $extraPost)
+    protected function _parseLineProperty($line, $property, $value, $indent, $separator, $extraPost)
     {
         // are comments allowed in stripper lines?
         // I'm assuming they aren't
-     
-        $extraPost = trim($extraPost);
 
-        if (strlen($extraPost)) {
-            $this->_addError(
-                'error',
-                'Unexpected content following the property and value content. '
-                    .   'Property statement must be no other or more than: "(property)" "(value)". '
-                    .   '(Tip: check for embedded quotes (").)',
-                $this->_lineNumber
-            );
-            return false;
+        if (strlen(trim($extraPost))) {
+            if (!preg_match('/^\s*;/s', $extraPost)) {
+                // comment? just fine, don't even warn
+                // otherwise, garbage text        
+                $this->_addError(
+                    'warning',
+                    'Unexpected content after the "property" and "value" content. '
+                        .   'This will not break your script, but should be cleaned up. ',
+                    $this->_lineNumber
+                );
+            }
         }
 
         // check if it is a known property
@@ -307,6 +363,8 @@ class StripperParser
                 sprintf("Unknown property name: '%s' (with value: '%s').", $property, trim($value)),
                 $this->_lineNumber
             );
+            $this->_highlightPropertyLine($indent, $property, 'stripper-property-unknown', $separator,
+                $value, 'stripper-value-untested', $extraPost);
             return false;
         }
 
@@ -326,20 +384,17 @@ class StripperParser
             foreach ($validate['errors'] as $error) {
                 $this->_addError('error', $error, $this->_lineNumber);
             }
-
-            // stop processing if errors
-            if (count($validate['errors'])) {
-                return false;
-            }
         }
 
         // assign the line to the current block
         if ($this->_bracketLevel == 1) {
             if ($this->_blockMode == STRP_MODE_UNKNOWN) {
                 // ignored
+                $this->coloredLines[] = sprintf('<span class="stripper-syntaxerror">%s</span>', htmlentities($line));
                 return false;
             }
             else if ($this->_blockMode == STRP_MODE_MODIFY) {
+                $this->coloredLines[] = sprintf('<span class="stripper-syntaxerror">%s</span>', htmlentities($line));
                 return false;
             }
             
@@ -351,6 +406,7 @@ class StripperParser
         } else if ($this->_bracketLevel == 2) {
             if ($this->_blockSubMode == STRP_MODE_UNKNOWN) {
                 // ignored
+                $this->coloredLines[] = sprintf('<span class="stripper-syntaxerror">%s</span>', htmlentities($line));
                 return false;
             }
 
@@ -366,8 +422,15 @@ class StripperParser
                     $property, $value),
                 $this->_lineNumber
             );
+            $this->coloredLines[] = sprintf('<span class="stripper-syntaxerror">%s</span>', htmlentities($line));
             return false;
         }
+
+        // syntax highlight
+        $this->_highlightPropertyLine($indent, $property, 'stripper-property-known', $separator, $value,
+            ($validate['validates']) ? 'stripper-value-valid' : 'stripper-value-invalid',
+            $extraPost
+        );
 
         return true;
     }
@@ -399,25 +462,31 @@ class StripperParser
             $this->_bracketLevel++;
             return false;
         }
-        else if ($this->_bracketLevel > 0 && $this->_blockSubMode == STRP_MODE_UNKNOWN) {
-            $this->_addError(
-                'error',
-                'Unexpected opening bracket for a MODIFY block without a preceding '
-                .   'MATCH/INSERT/DELETE/REPLACE modifier.',
-                $this->_lineNumber
-            );
-            // increment anyway
-            //$this->_bracketLevel++;
-            return false;
-        }
-        else if ($this->_bracketLevel > 0 && $this->_blockMode != STRP_MODE_MODIFY) {
-            $this->_addError(
-                'error',
-                'Unexpected opening bracket inside a top level block of the wrong type. '
-                .   'Only a MODIFY block may have sub-blocks.',
-                $this->_lineNumber
-            );
-            return false;
+        else if ($this->_bracketLevel > 0) {
+            if ($this->_blockMode == STRP_MODE_MODIFY) {
+                if ($this->_blockSubMode == STRP_MODE_UNKNOWN) {
+                    $this->_addError(
+                        'error',
+                        'Unexpected opening bracket for a MODIFY block without a preceding '
+                        .   'MATCH/INSERT/DELETE/REPLACE modifier.',
+                        $this->_lineNumber
+                    );
+
+                    // increment anyway
+                    $this->_bracketLevel++;
+                    return false;
+                }
+            } else {
+                $this->_addError(
+                    'error',
+                    'Unexpected opening bracket inside a block. Only MODIFY blocks can have nested blocks.',
+                    $this->_lineNumber
+                );
+
+                // increment anyway
+                $this->_bracketLevel++;
+                return false;
+            }
         }
 
         // open block
@@ -486,20 +555,30 @@ class StripperParser
             return false;
         }
         else if ($this->_bracketLevel > 1 && $this->_blockSubMode == STRP_MODE_UNKNOWN) {
+            /*
+            // unnecessary error, since the opening was problematic.. just decrease block level
             $this->_addError(
                 'error',
                 'Unexpected closing bracket on submode block level. '
                     .   '(Found no opened MATCH/INSERT/DELETE/REPLACE block that can be closed.)',
                 $this->_lineNumber
             );
+            */
+            $this->_bracketLevel--;
             return false;
         }
         else if ($this->_blockMode == STRP_MODE_UNKNOWN) {
+            /*
+            // unnecessary error, since the opening was problematic.. just decrease block level
             $this->_addError(
                 'error',
                 'Unexpected closing bracket. No valid opened blocks.',
                 $this->_lineNumber
             );
+            */
+            if ($this->_bracketLevel) {
+                $this->_bracketLevel--;
+            }
             return false;
         }
 
@@ -550,6 +629,80 @@ class StripperParser
 
         $this->_bracketLevel--;
         return true;
+    }
+
+
+    /**
+     * Adds syntax highlighted version of the line to coloredLines
+     * @param  string $indent
+     * @param  string $modifier
+     * @param  string $modifierClass
+     * @param  string $colon
+     * @param  string $postFix
+     * @return void           
+     */
+    protected function _highlightModifierLine($indent, $modifier, $modifierClass, $colon, $postFix) {
+        
+        // format content after prop/val
+        if (preg_match('/^\s*;/s', $postFix)) {
+            $postFix = sprintf('<span class="stripper-comment">%s</span>', htmlentities($postFix));
+        } else if (strlen(trim($postFix))) {
+            $postFix = sprintf('<span class="stripper-syntaxerror">%s</span>', htmlentities($postFix));
+        } else {
+            $postFix = htmlentities($postFix);
+        }
+
+        if (!$modifierClass) {
+            if (!preg_match('/^(add|modify|filter|match|insert|delete|replace)$/i', $modifier) || !strlen($colon)) {
+                $modifierClass = 'stripper-syntaxerror';
+            } else {
+                $modifierClass = 'stripper-modifier';
+            }
+        }
+
+
+        $this->coloredLines[] = sprintf('%s%s%s%s',
+            htmlentities($indent),
+            sprintf('<span class="%s">%s</span>', $modifierClass, htmlentities($modifier)),
+            $colon,
+            $postFix    // already escaped
+        );
+    }
+
+    /**
+     * Adds syntax highlighted version of the line to coloredLines
+     * @param  string $indent
+     * @param  string $property
+     * @param  string $propertyClass
+     * @param  string $separator
+     * @param  string $value
+     * @param  string $valueClass
+     * @param  string $postFix
+     * @return void           
+     */
+    protected function _highlightPropertyLine($indent, $property, $propertyClass, $separator,
+        $value, $valueClass, $postFix
+    ) {
+        // format content after prop/val
+        if (preg_match('/^\s*;/s', $postFix)) {
+            $postFix = sprintf('<span class="stripper-comment">%s</span>', htmlentities($postFix));
+        } else if (strlen(trim($postFix))) {
+            $postFix = sprintf('<span class="stripper-syntaxerror">%s</span>', htmlentities($postFix));
+        } else {
+            $postFix = htmlentities($postFix);
+        }        
+
+        $this->coloredLines[] = sprintf(
+            '%s"<span class="stripper-property%s">%s</span>"%s'
+            .   '"<span class="stripper-value%s">%s</span>"%s',
+            htmlentities($indent),
+            ($propertyClass) ? ' ' . $propertyClass : '',
+            htmlentities($property),
+            htmlentities($separator),
+            ($valueClass) ? ' ' . $valueClass : '',
+            htmlentities($value),
+            $postFix    // already escaped
+        );
     }
 
 
