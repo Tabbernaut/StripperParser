@@ -2,6 +2,8 @@
     StripperParser output syntax highlight styles
  */
 
+/* container and meta stuff */
+
 .stripper-highlight {
     font-family: courier new, monospace;
     font-size: 10pt;
@@ -14,6 +16,39 @@
     color: #888;
     font-size: 8pt;
 }
+
+.stripper-highlight a.color-preview {
+    position: relative;
+    text-decoration: underline;
+    color: #0022ff;
+    font-weight: bold;
+}
+.stripper-highlight a.color-preview:hover,
+  .stripper-highlight a.color-preview:active {
+    text-decoration: none;
+    color: #0011ee;
+}
+
+.stripper-highlight .color-preview-tooltip {
+    position: absolute;
+    display: none;
+    left: 60px;
+    top: 20px;
+    width: 64px;
+    height: 64px;
+    border: 2px solid #fff;
+    background-color: #000;
+    -moz-box-shadow: 0 1px 5px rgba(0,0,0,0.75);
+    -webkit-box-shadow: 0 1px 5px rgba(0,0,0,0.75);
+    box-shadow: 0 1px 5px rgba(0,0,0,0.75);
+}
+
+.stripper-highlight a.color-preview:hover .color-preview-tooltip {
+    display: block;
+}
+
+
+/* content */
 
 .stripper-highlight .stripper-syntaxerror {
     color: #B12217;

@@ -81,14 +81,38 @@ if (count($parser->errors) || count($parser->warnings)) {
     print "</pre>\n";
 }
 
-// syntax-highlighted version
-print "<div class='stripper-highlight'>\n";
-print "<pre>\n";
-foreach ($parser->coloredLines as $key => $line) {
-    echo sprintf('<span class="line-number">%6d:</span>   ', $key+1), $line, "\n";
-}
-print "</pre>\n";
-print "</div>\n";
+// syntax highlighted
+?>
+        <div class="stripper-highlight">
+            <pre>
+<?php
+
+    foreach ($parser->coloredLines as $key => $line) {
+
+        // add mouse hover preview for colors
+        if (preg_match('/^(.*?)(stripper-value-type-color|stripper-value-type-color_rgba)">(.*)<\/span>(.*)$/is',
+            $line, $match)
+        ) {
+            $color = '0, 0, 0';
+            $colors = preg_split("/\s+/s", $match[3]);
+            if (is_array($colors) && count($colors) >= 3) {
+                $color = $colors[0] . ', ' . $colors[1] . ', ' . $colors[2];
+            }
+            $line = $match[1] . $match[2] . '">'
+                  . '<a href="#" class="color-preview" title="color preview" alt="' . $match[3] . '">'
+                  . $match[3]
+                  . '<span class="color-preview-tooltip" style="background-color: rgb(' . $color . ')">&nbsp;</span>'
+                  . '</a>'
+                  . '</span>' . $match[4];
+        }
+        echo sprintf('<span class="line-number">%6d:</span>   ', $key+1), $line, "\n";
+    }
+?>
+            </pre>
+        </div>
+    </div>
+<?php
+    
 
 /*
 print "<pre>\n";
@@ -96,6 +120,7 @@ print_r($parser->getBlocks());
 print "</pre>\n";
 print("<br />");
 */
+
 
 
 // parse all files in the test/collection/ directory:
