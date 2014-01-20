@@ -1,0 +1,61 @@
+/*
+    StripperParser output syntax highlight styles
+ */
+
+.stripper-highlight {
+    font-family: courier new, monospace;
+    font-size: 10pt;
+    line-height: 1.2em;
+    color: #444;
+    min-width: 700px;
+}
+
+.stripper-highlight .line-number {
+    color: #888;
+    font-size: 8pt;
+}
+
+.stripper-highlight .stripper-syntaxerror {
+    color: #B12217;
+}
+
+.stripper-highlight .stripper-comment {
+    font-style: italic;
+    color: #999;
+}
+
+.stripper-highlight .stripper-modifier {
+    font-weight: bold;
+    color: #417E03;
+}
+.stripper-highlight .stripper-modifier-unexpected {
+    font-weight: normal;
+    color: #C84100;
+}
+
+
+.stripper-highlight .stripper-property {
+    /* untested property */
+    color: #776C56;
+}
+
+.stripper-highlight .stripper-property-known {
+    color: #2383CC;
+}
+
+.stripper-highlight .stripper-property-unknown {
+    color: #B5483E;
+}
+
+.stripper-highlight .stripper-value {
+    color: #475E73;
+}
+
+.stripper-highlight .stripper-value-invalid {
+    color: #C84100;
+}
+
+.stripper-highlight .stripper-value-untested {
+    color: #776C56;
+}
+

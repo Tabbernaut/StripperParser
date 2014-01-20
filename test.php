@@ -42,6 +42,18 @@ $contentBroken = file_get_contents($fileBroken);
 $parser = StripperParserFactory::makeParser();
 
 
+//  HTML output start
+?>
+<!doctype html>
+<html>
+    <head>
+        <title>Parser Test</title>
+        <link rel="stylesheet" href="css/stripper-highlight.css">
+    </head>
+    <body>
+<?php
+
+
 // good test
 $parser->parse($contentOkay);
 printf("Content parsed: %d errors; %d warnings.", count($parser->errors), count($parser->warnings));
@@ -69,6 +81,15 @@ if (count($parser->errors) || count($parser->warnings)) {
     print "</pre>\n";
 }
 
+// syntax-highlighted version
+print "<div class='stripper-highlight'>\n";
+print "<pre>\n";
+foreach ($parser->coloredLines as $key => $line) {
+    echo sprintf('<span class="line-number">%6d:</span>   ', $key+1), $line, "\n";
+}
+print "</pre>\n";
+print "</div>\n";
+
 /*
 print "<pre>\n";
 print_r($parser->getBlocks());
@@ -91,3 +112,8 @@ $files = new RegexIterator($flattened, '#.*\.(cfg)$#Di');
 // enable dump mode so stripper/dumps files don't cause too many freaky warnings
 //$parser->dumpMode = true;
 */
+
+//  HTML output end
+?>
+    </body>
+</html>
