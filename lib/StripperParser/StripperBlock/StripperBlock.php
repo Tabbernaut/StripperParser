@@ -29,16 +29,23 @@ abstract class StripperBlockAbstract implements StripperBlockInterface
 
     public function addProperty($property, $value) {
 
+        // use StripperConfig->duplicateAllowed($property) to find out 
+        // whether a property should be warned about when having duplicates
+        
+        /*
+            // duplicate property checking only makes sense if we
+            // make a distinction between actual properties and trigger/event lines (which you can have multiples of)
         if (isset($this->properties[$property])) {
-            $this->_errors[] = sprintf(
+            $this->_warnings[] = sprintf(
                 "Duplicate property ('%s'). Previous value will be overwritten ('%s' => '%s').",
                 $property,
                 $this->properties[$property],
                 $value
             );
         }
-
-        $this->properties[$property] = $value;
+        */
+       
+        $this->properties[] = array('property' => $property, 'value' => $value);
     }
 
     public function validate()
@@ -50,8 +57,8 @@ abstract class StripperBlockAbstract implements StripperBlockInterface
         );
 
         // add errors previously added
-        array_merge($validate['errors'], $this->_errors);
-        array_merge($validate['warnings'], $this->_warnings);
+        $validate['errors'] = array_merge($validate['errors'], $this->_errors);
+        $validate['warnings'] = array_merge($validate['warnings'], $this->_warnings);
 
         // warn for empty block
         if (!count($this->properties)) {
@@ -64,6 +71,7 @@ abstract class StripperBlockAbstract implements StripperBlockInterface
         // TO DO
         
         $validate['validates'] = (!count($validate['errors']));
+
         return $validate;
     }
 }
@@ -94,8 +102,8 @@ class StripperBlockModify extends StripperBlockAbstract
             $blockval = $block->validate();
 
             if ($blockval['validates'] !== null) {
-                array_merge($validate['errors'], $blockval['errors']);
-                array_merge($validate['warnings'], $blockval['warnings']);
+                $validate['errors'] = array_merge($validate['errors'], $blockval['errors']);
+                $validate['warnings'] = array_merge($validate['warnings'], $blockval['warnings']);
             }
 
             if ($block instanceof StripperBlockMatch) {
