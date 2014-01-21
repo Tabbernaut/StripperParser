@@ -894,7 +894,7 @@ class StripperConfig implements StripperConfigInterface
             case 'path':
                 if (strrpos($trimvalue, '\\') !== false) {
                     $validate['warnings'][] = sprintf("Found backslash (\\) in path property ('%s'): '%s'."
-                        .   " It is recommended to use forward slashes (/) to avoid problems.", $property, $value);
+                        .   " Forward slashes (/) are recommended.", $property, $value);
                     $validate['validates'] = false;
                 }
                 else if (!preg_match('/^[a-z0-9_\/\.\*\' -]+$/i', $trimvalue)) {
