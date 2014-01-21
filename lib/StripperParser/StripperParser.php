@@ -20,7 +20,7 @@
  *         stripper-value-invalid
  *         stripper-bracket
  * 
- * @version 0.9.3
+ * @version 0.9.4
  * @package StripperParser
  */
 
@@ -398,10 +398,8 @@ class StripperParser
                 return false;
             }
             
-            $this->_blocks[$this->_lastBlock]->properties[] = array(
-                'property' => $property,
-                'value' => $value,
-            );
+            // add property to block
+            $this->_blocks[$this->_lastBlock]->addProperty($property, $value);
 
         } else if ($this->_bracketLevel == 2) {
             if ($this->_blockSubMode == STRP_MODE_UNKNOWN) {
@@ -410,10 +408,9 @@ class StripperParser
                 return false;
             }
 
-            $this->_blocks[$this->_lastBlock]->blocks[$this->_lastSubBlock]->properties[] = array(
-                'property' => $property,
-                'value' => $value,
-            );
+            // add property to block
+            $this->_blocks[$this->_lastBlock]->blocks[$this->_lastSubBlock]->addProperty($property, $value);
+            
         } else {
             // outside of expected block level
             $this->_addError(
@@ -590,49 +587,33 @@ class StripperParser
             return false;
         }
 
-        // check presence of required MATCH block in MODIFY
-        if ($this->_blockMode == STRP_MODE_MODIFY) {
+        // do a check to see if the previous block was in order
+        if ($this->_blockMode != STRP_MODE_UNKNOWN && $this->_lastBlock > -1) {
+            if ($this->_bracketLevel == 1) {
 
-            if ($this->_blockSubMode == STRP_MODE_UNKNOWN) {
-                // closing modify block
-                $found = false;
-                foreach ($this->_blocks[$this->_lastBlock]->blocks as $block) {
-                    if ($block instanceof StripperBlockMatch) {
-                        $found = true;
-                        break;
+                if (!($this->_blocks[$this->_lastBlock] instanceof StripperBlockInterface)) {
+                    throw New Exception(sprintf(
+                        'Top level block (index: %i) not a StripperBlock object.',
+                        $this->_lastBlock
+                    ));
+                }
+
+                $validate = $this->_blocks[$this->_lastBlock]->validate();
+
+                if (is_array($validate) && $validate['validates'] !== null) {
+                    foreach ($validate['errors'] as $error) {
+                        $this->_addError('error', $error, $this->_lineNumber);
+                    }
+                    foreach ($validate['warnings'] as $error) {
+                        $this->_addError('warning', $error, $this->_lineNumber);
                     }
                 }
-                
-                if (!$found) {
-                    $this->_addError(
-                        'error',
-                        'MODIFY block requires a MATCH sub-block.',
-                        $this->_lineNumber
-                    );
-                }
-            } else if ($this->_bracketLevel == 2) {
-                // closing sub-block (but only if we actually opened it to this level!)
-                if (!count($this->_blocks[$this->_lastBlock]->blocks[$this->_lastSubBlock]->properties)) {
-                    $this->_addError(
-                        'warning',
-                        'Sub-block closed without any (valid) content.',
-                        $this->_lineNumber
-                    );
-                }
-
-                // reset submode (not a remembered state like top-level blockMode)
-                $this->_blockSubMode = STRP_MODE_UNKNOWN;
             }
-
-        } else {
-            // warn for empty blocks
-            if (!count($this->_blocks[$this->_lastBlock]->properties)) {
-                $this->_addError(
-                    'warning',
-                    'Block closed without any (valid) content.',
-                    $this->_lineNumber
-                );
+            /*
+                // no check for sub-blocks now, this is handled by the top level block
+            else if ($this->_bracketLevel == 2 && $this->_lastSubBlock > -1) {
             }
+            */
         }
 
         $this->_bracketLevel--;
